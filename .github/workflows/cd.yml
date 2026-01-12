@@ -25,4 +25,4 @@ jobs:
         run: docker build -f ./nova-app/dockerfile -t vigarde/jedha-nova-project:latest ./nova-app/.
 
       - name: Push docker hub
-        run: docker push vigarde/jedha-lab-nova-project:latest
+        run: docker push vigarde/jedha-nova-project:latest
