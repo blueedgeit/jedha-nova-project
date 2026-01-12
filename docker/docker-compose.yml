@@ -1,0 +1,168 @@
+services:
+    # Next App
+  next-app:
+    build:
+      context: ./next-app
+      dockerfile: dockerfile
+      network: host
+      target: dev
+      labels: 
+       - ${LABEL_FOR_CUSTOM_IMAGE}
+    image: epsilon-france/next:pf-engagement
+    user: ${USER}
+    volumes:
+      - type: volume
+        source: front_code_source
+        target: /app
+    container_name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Next_App
+    hostname: nextapp
+    restart: unless-stopped
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: true
+    stdin_open: true 
+    tty: true
+    healthcheck:
+      test: curl -f http://localhost:3000
+      interval: 15s
+      timeout: 10s
+      start_period: 10m
+    labels:
+      traefik.enable: true
+      traefik.docker.network: public
+      # traefik.http.routers.phpmyadmin.entrypoints: websecure
+      traefik.http.routers.nextapp.rule: 'Host(`${TRAEFIK_NEXT_APP_ROUTERS_HOST}`)'
+      traefik.http.services.nextapp.loadbalancer.server.port: ${TRAEFIK_NEXT_APP_ROUTERS_PORT}
+      traefik.http.routers.nextapp.tls: true
+      traefik.http.middlewares.redirect.redirectscheme.scheme: 'https'
+    depends_on:
+      strapi:
+        condition: service_healthy
+      dev-front:
+        condition: service_started
+    networks:
+      - private
+  # Reverse Proxy
+  traefik:
+    image: traefik:3.3.4
+    container_name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Traefik
+    command: --api.insecure=true --providers.docker
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "9090:8080"
+    volumes:
+      # So that Traefik can listen to the Docker events
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      # traefik static configuration
+      - type: bind
+        read_only: true
+        source: ./config/traefik.dev.yml
+        target: /etc/traefik/traefik.yml
+      # tls configuration
+      - type: bind
+        read_only: true
+        source: ./config/tls.dev.yml
+        target: /etc/traefik/tls.yml
+      # ssl volumes to store
+      - type: volume
+        source: certs_data
+        target: /etc/ssl/traefik
+    depends_on:
+      strapi:
+        condition: service_healthy
+      next-app:
+        condition: service_healthy
+    networks:
+      - public
+      - private
+  traefik-https-helper:
+    image: alpine:3.20.1
+    container_name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Traefik_HTTPS_Helper
+    command: sh -c "cd /etc/ssl/traefik
+      && wget traefik.me/cert.pem -O cert.pem
+      && wget traefik.me/privkey.pem -O privkey.pem"
+    volumes:
+      # ssl volumes to store
+      - type: volume
+        source: certs_data
+        target: /etc/ssl/traefik
+    networks:
+      - private
+  dev-back:
+    build:
+      context: ./.devcontainer
+      dockerfile: dockerfile
+      network: host
+      args:
+        GIT_REPOSITORY: ${BACK_GIT_REPOSITORY}
+        GIT_BRANCH: ${BACK_GIT_BRANCH}
+        IS_STRAPI: true
+    image: epsilon-france/devcontainer:back
+    user: ${USER}
+    container_name: dev-back-container
+    restart: unless-stopped
+    labels:
+      traefik.enable: false
+    volumes:
+      - type: volume
+        source: back_code_source
+        target: /app
+    networks:
+      - private
+  dev-front:
+    build:
+      context: ./.devcontainer
+      dockerfile: dockerfile
+      network: host
+      args:
+          GIT_REPOSITORY: ${FRONT_GIT_REPOSITORY}
+          GIT_BRANCH: ${FRONT_GIT_BRANCH}
+    image: epsilon-france/devcontainer:front
+    user: ${USER}
+    container_name: dev-front-container
+    restart: unless-stopped
+    labels:
+      traefik.enable: false
+    volumes:
+      - type: volume
+        source: front_code_source
+        target: /app
+    networks:
+      - private
+volumes:
+  # Strapi
+  postgresql_data:
+    driver: local
+    name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Postgresql
+   # Dev code source
+  back_code_source:
+    driver: local
+    name: back-front-code-source
+  front_code_source:
+    driver: local
+    name: dev-front-code-source
+  pgadmin_data:
+    driver: local
+    name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_PGAdmin
+  # Reverse Proxy
+  certs_data:
+    driver: local
+    name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Certs
+networks:
+  private:
+    name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Private
+    ipam:
+        driver: default
+        config:
+            - subnet: ${SUBNET_PRIVATE}
+  public:
+    name: ${CUSTOMER_NAME}_${CUSTOMER_PROJECT}_Public
+    ipam:
+        driver: default
+        config:
+            - subnet: ${SUBNET_PUBLIC}
