@@ -22,7 +22,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       
       - name: Build docker image
-        run: docker build -t vigarde/jedha-nova-project:latest .
+        run: docker build -f ./nova-app/dockerfile -t vigarde/jedha-nova-project:latest .
 
       - name: Push docker hub
         run: docker push vigarde/jedha-lab-nova-project:latest
